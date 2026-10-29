@@ -1,113 +1,69 @@
-# Cloudflare + Vercel Terraform Guide (Stable Architecture)
+# Cloudflare Terraform
 
-This document defines a production-safe setup for managing DNS with Terraform and Cloudflare while deploying a frontend on Vercel.
+Terraform configuration for managing Cloudflare DNS records and R2 object storage.
 
 ---
 
-# System Overview
-
-Architecture flow:
+# Layout
 
 ```
-Terraform
-  ↓
-Cloudflare DNS
-  ↓
-Vercel Hosting
-  ↓
-Next.js App
+infra/
+  main.tf                     # provider + DNS records
+  r2.tf                       # R2 bucket + outputs
+  terraform.tfvars.example    # variables to fill in locally
 ```
 
 ---
 
 # Goals
 
-* Single source of truth (Terraform)
-* No manual DNS changes in Cloudflare UI
-* Stable routing to Vercel
+* Terraform is the single source of truth
+* No manual changes in the Cloudflare dashboard
 * Zero state drift
-* Predictable deployments
+* Predictable, reviewable changes via `plan`
 
 ---
 
-# Cloudflare DNS Rules
+# Prerequisites
 
-Only use these record types:
-
-## Root domain (@)
-
-```hcl
-resource "cloudflare_record" "root" {
-  zone_id = var.zone_id
-  name    = "@"
-  type    = "CNAME"
-  content = "cname.vercel-dns.com"
-  proxied = true
-}
-```
-
-## WWW domain
-
-```hcl
-resource "cloudflare_record" "www" {
-  zone_id = var.zone_id
-  name    = "www"
-  type    = "CNAME"
-  content = "cname.vercel-dns.com"
-  proxied = true
-}
-```
-
-## Blog subdomain
-
-```hcl
-resource "cloudflare_record" "blog_a_1" {
-  zone_id = var.zone_id
-  name    = "blog"
-  type    = "A"
-  content = "162.159.153.4"
-  proxied = false
-}
-
-resource "cloudflare_record" "blog_a_2" {
-  zone_id = var.zone_id
-  name    = "blog"
-  type    = "A"
-  content = "162.159.152.4"
-  proxied = false
-}
-```
+* Terraform >= 1.5
+* A Cloudflare API token with:
+  * `Zone > DNS > Edit` for the zone
+  * `Account > Workers R2 Storage > Edit` for the account
+* Your zone ID and account ID (dashboard → right sidebar on any zone overview)
 
 ---
 
-# Do NOT use
-
-* A records for root or www
-* Wildcard (*) records (unless explicitly needed)
-* Manual UI edits in Cloudflare
-* Mixed A + CNAME setups
-
----
-
-# 🧠 Terraform State Rules
-
-## Use remote state (recommended)
-
-* S3 backend OR Terraform Cloud
-* Prevents local state loss or drift
-
-## Workflow
+# Setup
 
 ```bash
+cd infra
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Fill in `terraform.tfvars`:
+
+```hcl
+cloudflare_api_token = "..."
+zone_id              = "..."
+account_id           = "..."
+```
+
+`terraform.tfvars` is gitignored. Never commit it.
+
+Then:
+
+```bash
+terraform init
 terraform plan
 terraform apply
 ```
 
-NEVER skip plan in production.
+Never skip `plan`.
 
 ---
 
-# Provider configuration
+# Provider
 
 ```hcl
 terraform {
@@ -122,113 +78,85 @@ terraform {
 
 ---
 
-# Vercel Configuration
+# DNS
 
-## Required setup:
+Managed in `infra/main.tf`:
 
-* Set `www` as primary domain
-* Ensure root redirects to www
-* Enable automatic SSL
+| Record | Type  | Proxied |
+| ------ | ----- | ------- |
+| `@`    | CNAME | yes     |
+| `www`  | CNAME | yes     |
+| `blog` | A ×2  | no      |
 
-## Expected behavior:
+Rules:
 
-* [https://jabercrombia.com](https://jabercrombia.com) → redirects to www
-* [https://www.jabercrombia.com](https://www.jabercrombia.com) → serves app
+* Use CNAME (flattened by Cloudflare) for root and `www`
+* Don't mix A and CNAME records on the same name
+* Avoid wildcard (`*`) records unless explicitly needed
 
 ---
 
-# Verification Checklist
+# R2 Storage
 
-## DNS
+Managed in `infra/r2.tf`.
+
+| Variable         | Default               | Notes                                  |
+| ---------------- | --------------------- | -------------------------------------- |
+| `r2_bucket_name` | `jabercrombia-assets` | lowercase, numbers, hyphens; 3–63 chars |
+| `r2_location`    | `ENAM`                | WNAM, ENAM, WEUR, EEUR, APAC, OC       |
+
+* Bucket uses the Standard storage class (the only class with a free tier: 10 GB-month, 1M Class A / 10M Class B ops, free egress)
+* `prevent_destroy` is set, so Terraform will refuse to delete the bucket
+
+Outputs:
+
+```bash
+terraform output r2_bucket_name
+terraform output -raw r2_s3_endpoint   # https://<account_id>.r2.cloudflarestorage.com
+```
+
+---
+
+# State
+
+Use a remote backend (S3, Terraform Cloud, etc.) to avoid local state loss. State files are gitignored.
+
+---
+
+# Verification
 
 ```bash
 dig jabercrombia.com
 dig www.jabercrombia.com
 dig blog.jabercrombia.com
+curl -I https://www.jabercrombia.com   # expect server: cloudflare
 ```
 
-Expected: CNAME resolution via Cloudflare edge for root/www; A record resolution for blog
-
 ---
 
-## Runtime
+# Troubleshooting
 
-```bash
-curl -I https://jabercrombia.com
-```
+## Redirect loops
 
-Expected:
+Set Cloudflare SSL/TLS mode to **Full (strict)**.
 
-* 307 redirect to www
-* or 200 OK on www
-* server: cloudflare + vercel headers
+## State drift
 
----
-
-# Common Failure Modes
-
-## 1. Redirect loops
-
-Cause: incorrect SSL mode in Cloudflare
-
-Fix:
-
-* Set SSL mode to "Full (strict)"
-
----
-
-## 2. DNS mismatch
-
-Cause: A records still exist
-
-Fix:
-
-* Remove all A records
-* Use only CNAME → Vercel
-
----
-
-## 3. Terraform state drift
-
-Cause: manual Cloudflare changes
-
-Fix:
+Caused by manual dashboard changes.
 
 ```bash
 terraform state list
 terraform apply -refresh-only
 ```
 
----
+## R2 permission errors
 
-# 🧠 Golden Rules
-
-* Terraform owns DNS
-* Cloudflare UI is read-only
-* Vercel owns hosting
-* No mixed record types for root domain
+Make sure the API token includes `Account > Workers R2 Storage > Edit`.
 
 ---
 
-# Stable Architecture Outcome
+# Golden Rules
 
-When correctly configured:
-
-* No DNS conflicts
-* No import loops
-* No manual fixes required
-* Fully reproducible infra
-
----
-
-# Summary
-
-This setup ensures:
-
-* deterministic infrastructure
-* clean deployment pipeline
-* production-grade reliability
-
----
-
-End of guide.
+* Terraform owns DNS and storage
+* Cloudflare dashboard is read-only
+* Always `plan` before `apply`
