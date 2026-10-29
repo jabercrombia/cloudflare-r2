@@ -9,7 +9,12 @@ variable "account_id" {
 
 variable "r2_bucket_name" {
   description = "R2 bucket name (lowercase letters, numbers, hyphens; 3-63 chars)"
-  default     = "jabercrombia-assets"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", var.r2_bucket_name))
+    error_message = "Bucket name must be 3-63 chars: lowercase letters, numbers, hyphens; cannot start or end with a hyphen."
+  }
 }
 
 variable "r2_location" {

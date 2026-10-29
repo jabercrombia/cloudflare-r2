@@ -45,6 +45,7 @@ Fill in `terraform.tfvars`:
 ```hcl
 cloudflare_api_token = "..."
 account_id           = "..."
+r2_bucket_name       = "my-assets"
 ```
 
 `terraform.tfvars` is gitignored. Never commit it.
@@ -82,7 +83,7 @@ Managed in `infra/r2.tf`.
 
 | Variable         | Default               | Notes                                  |
 | ---------------- | --------------------- | -------------------------------------- |
-| `r2_bucket_name` | `jabercrombia-assets` | lowercase, numbers, hyphens; 3–63 chars |
+| `r2_bucket_name` | *(required)*          | lowercase, numbers, hyphens; 3–63 chars |
 | `r2_location`    | `ENAM`                | WNAM, ENAM, WEUR, EEUR, APAC, OC       |
 
 * Bucket uses the Standard storage class (the only class with a free tier: 10 GB-month, 1M Class A / 10M Class B ops, free egress)
