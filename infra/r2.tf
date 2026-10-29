@@ -1,6 +1,6 @@
 # R2 object storage (free tier: 10 GB-month, 1M Class A / 10M Class B ops, free egress).
 # Buckets default to the Standard storage class, which is the only class with a free tier.
-# The API token needs "Account > Workers R2 Storage > Edit" in addition to DNS permissions.
+# The API token needs "Account > Workers R2 Storage > Edit".
 
 variable "account_id" {
   description = "Cloudflare account ID (dashboard > right sidebar on any zone overview)"

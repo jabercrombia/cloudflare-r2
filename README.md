@@ -1,6 +1,6 @@
 # Cloudflare Terraform
 
-Terraform configuration for managing Cloudflare DNS records and R2 object storage.
+Terraform configuration for managing Cloudflare R2 object storage.
 
 ---
 
@@ -8,7 +8,7 @@ Terraform configuration for managing Cloudflare DNS records and R2 object storag
 
 ```
 infra/
-  main.tf                     # provider + DNS records
+  main.tf                     # provider config
   r2.tf                       # R2 bucket + outputs
   terraform.tfvars.example    # variables to fill in locally
 ```
@@ -28,9 +28,8 @@ infra/
 
 * Terraform >= 1.5
 * A Cloudflare API token with:
-  * `Zone > DNS > Edit` for the zone
   * `Account > Workers R2 Storage > Edit` for the account
-* Your zone ID and account ID (dashboard → right sidebar on any zone overview)
+* Your account ID (dashboard → right sidebar on any zone overview)
 
 ---
 
@@ -45,7 +44,6 @@ Fill in `terraform.tfvars`:
 
 ```hcl
 cloudflare_api_token = "..."
-zone_id              = "..."
 account_id           = "..."
 ```
 
@@ -78,24 +76,6 @@ terraform {
 
 ---
 
-# DNS
-
-Managed in `infra/main.tf`:
-
-| Record | Type  | Proxied |
-| ------ | ----- | ------- |
-| `@`    | CNAME | yes     |
-| `www`  | CNAME | yes     |
-| `blog` | A ×2  | no      |
-
-Rules:
-
-* Use CNAME (flattened by Cloudflare) for root and `www`
-* Don't mix A and CNAME records on the same name
-* Avoid wildcard (`*`) records unless explicitly needed
-
----
-
 # R2 Storage
 
 Managed in `infra/r2.tf`.
@@ -123,22 +103,7 @@ Use a remote backend (S3, Terraform Cloud, etc.) to avoid local state loss. Stat
 
 ---
 
-# Verification
-
-```bash
-dig jabercrombia.com
-dig www.jabercrombia.com
-dig blog.jabercrombia.com
-curl -I https://www.jabercrombia.com   # expect server: cloudflare
-```
-
----
-
 # Troubleshooting
-
-## Redirect loops
-
-Set Cloudflare SSL/TLS mode to **Full (strict)**.
 
 ## State drift
 
@@ -157,6 +122,6 @@ Make sure the API token includes `Account > Workers R2 Storage > Edit`.
 
 # Golden Rules
 
-* Terraform owns DNS and storage
+* Terraform owns R2 storage
 * Cloudflare dashboard is read-only
 * Always `plan` before `apply`
